@@ -1,0 +1,162 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="theme-color" content="#111827">
+<title>Diagnóstico FFmpeg em HTTPS — Estúdio de Vídeo IA</title>
+<style>
+:root{color-scheme:dark}*{box-sizing:border-box}body{margin:0;background:#090f1e;color:#f8fafc;font:15px system-ui,sans-serif}.wrap{max-width:760px;margin:auto;padding:16px 14px 40px}h1{font-size:21px;margin:6px 0}.hint{color:#94a3b8;font-size:13px;line-height:1.5}button{width:100%;border:0;border-radius:12px;padding:14px;margin-top:10px;background:#7c3aed;color:#fff;font-weight:750;font-size:15px}button.alt{background:#334155}button:disabled{opacity:.5}select{width:100%;padding:11px;border-radius:10px;border:1px solid #475569;background:#0b1220;color:#fff;font:inherit;margin-top:6px}.chk{display:flex;gap:8px;align-items:center;margin-top:10px}.chk input{width:20px;height:20px}.step{border:1px solid #334155;border-left-width:6px;border-radius:12px;background:#0b1220;padding:10px 12px;margin:9px 0}.step.run{border-left-color:#eab308}.step.ok{border-left-color:#22c55e}.step.fail{border-left-color:#ef4444}.step.warn{border-left-color:#f97316}.step b{display:block}.msg{font-size:13px;color:#cbd5e1;overflow-wrap:anywhere;margin-top:4px;white-space:pre-wrap}.banner{border-radius:12px;padding:10px 12px;margin-top:12px;font-size:14px;font-weight:650}.banner.ok{background:#14532d;color:#bbf7d0}.banner.bad{background:#7c2d12;color:#fed7aa}textarea{width:100%;height:170px;margin-top:10px;background:#0b1220;color:#e2e8f0;border:1px solid #475569;border-radius:10px;padding:10px;font:12px ui-monospace,monospace}
+</style></head>
+<body><main class="wrap">
+<h1>🔬 Diagnóstico HTTPS: Worker clássico × módulo</h1>
+<p class="hint">Arquivo exclusivo de teste. Não altera o aplicativo e não grava nada. Compara Worker clássico e Worker de módulo, um resultado para cada, e testa a biblioteca FFmpeg. Use Wi-Fi, mantenha a aba aberta e na frente. Baixa cerca de 30 MB e pode levar de 2 a 5 minutos.</p>
+<div id="banner" class="banner"></div>
+<label class="hint" for="host">Servidor dos arquivos do FFmpeg</label>
+<select id="host"><option value="https://cdn.jsdelivr.net/npm/">jsDelivr</option><option value="https://unpkg.com/">unpkg</option></select>
+<label class="chk hint"><input type="checkbox" id="lib" checked> Incluir testes da biblioteca FFmpeg (mais lentos)</label>
+<button id="go">▶ Executar diagnóstico</button>
+<div id="steps"></div>
+<div class="step" id="sumBox" style="display:none"><b>Resumo clássico × módulo</b><div class="msg" id="sum"></div></div>
+<button class="alt" id="copy">📋 Copiar relatório para enviar</button>
+<textarea id="rep" readonly placeholder="O relatório completo aparecerá aqui."></textarea>
+</main>
+<script>
+const $=id=>document.getElementById(id);
+const FF='0.12.15',CORE='0.12.10';
+const report=[],res={};
+const ICON={run:'⏳',ok:'✅',fail:'❌',warn:'⚠️'};
+(function(){const b=$('banner'),https=location.protocol==='https:';b.className='banner '+(https?'ok':'bad');b.textContent=https?'Página em HTTPS verdadeiro: '+location.origin:'ATENÇÃO: protocolo '+location.protocol+' ('+location.origin+'). Este teste só vale de verdade se aberto por um endereço https://';})();
+function addRow(name){
+ const el=document.createElement('div');el.className='step run';
+ const b=document.createElement('b');b.textContent=ICON.run+' '+name;const m=document.createElement('div');m.className='msg';
+ el.append(b,m);$('steps').appendChild(el);el.scrollIntoView({block:'nearest'});
+ const t0=performance.now(),lines=[],rec={name,status:'run',detail:''};report.push(rec);
+ return{
+  log(x){lines.push(x);m.textContent=lines.join('\n');rec.detail=lines.join(' | ')},
+  set(s,x){if(x)lines.push(x);el.className='step '+s;b.textContent=ICON[s]+' '+name+' ('+((performance.now()-t0)/1000).toFixed(1)+' s)';m.textContent=lines.join('\n');rec.status=s;rec.detail=lines.join(' | ');refreshReport()}
+ };
+}
+function refreshReport(){$('rep').value='DIAGNÓSTICO HTTPS — '+new Date().toLocaleString('pt-BR')+'\n'+location.href+'\n'+navigator.userAgent+'\n\n'+report.map(r=>r.status.toUpperCase()+' · '+r.name+'\n   '+r.detail).join('\n')}
+async function T(name,fn,key){
+ const row=addRow(name);let ok=false;
+ try{const r=await fn(row.log);row.set(r&&r.warn?'warn':'ok',r&&r.msg?r.msg:(typeof r==='string'?r:''));ok=true}
+ catch(e){row.set('fail','ERRO: '+(e&&e.message?e.message:String(e)))}
+ if(key)res[key]=ok;return ok;
+}
+function withTimeout(p,ms,label){let t;return Promise.race([p,new Promise((_,rej)=>{t=setTimeout(()=>rej(new Error(label+': sem resposta em '+Math.round(ms/1000)+' s')),ms)})]).finally(()=>clearTimeout(t))}
+async function dl(url,onP){
+ const c=new AbortController();let t;const arm=()=>{clearTimeout(t);t=setTimeout(()=>c.abort(),20000)};arm();
+ try{
+  const r=await fetch(url,{signal:c.signal,mode:'cors'});if(!r.ok)throw new Error('HTTP '+r.status);
+  const tot=+r.headers.get('content-length')||0;
+  if(!r.body||!r.body.getReader)return await r.blob();
+  const rd=r.body.getReader(),parts=[];let g=0;
+  for(;;){const{done,value}=await rd.read();if(done)break;parts.push(value);g+=value.length;arm();if(onP)onP((g/1048576).toFixed(1)+(tot?' de '+(tot/1048576).toFixed(1):'')+' MB')}
+  return new Blob(parts);
+ }catch(e){throw new Error(e.name==='AbortError'?'20 s sem receber dados':e.message)}finally{clearTimeout(t)}
+}
+function probe(code,type,msg,ms,onLog){
+ return new Promise((resolve,reject)=>{
+  const url=URL.createObjectURL(new Blob([code],{type:'text/javascript'}));let w;
+  try{w=new Worker(url,type==='module'?{type:'module'}:undefined)}catch(e){reject(new Error('exceção ao criar o Worker: '+e.name+': '+e.message));return}
+  const end=()=>{clearTimeout(t);try{w.terminate()}catch(e){}URL.revokeObjectURL(url)};
+  const t=setTimeout(()=>{end();reject(new Error('Worker criado, mas não respondeu em '+ms/1000+' s'))},ms);
+  w.onmessage=e=>{const d=e.data||{};if(d.log&&onLog)onLog(d.log);if(d.done){end();d.err?reject(new Error(d.err)):resolve(d.info||'ok')}};
+  w.onerror=e=>{end();reject(new Error('o Worker acusou erro: '+(e.message||'sem mensagem (o navegador não detalha quando o script do Worker não carrega)')+(e.filename?' | arquivo: '+e.filename.slice(0,60):'')+(e.lineno?' | linha '+e.lineno:'')))};
+  w.onmessageerror=()=>{end();reject(new Error('messageerror no Worker'))};
+  w.postMessage(msg);
+ });
+}
+function spyWorkers(log){
+ const Orig=window.Worker;
+ window.Worker=function(u,o){
+  const w=new Orig(u,o);log('Worker da biblioteca criado (tipo '+((o&&o.type)||'clássico')+')');
+  w.addEventListener('error',e=>log('✖ Worker acusou erro: '+(e.message||'sem mensagem')));
+  w.addEventListener('messageerror',()=>log('✖ messageerror no Worker'));
+  w.addEventListener('message',e=>log('← Worker enviou: '+((e.data&&e.data.type)||'?')));
+  return w;
+ };
+ window.Worker.prototype=Orig.prototype;
+ return()=>{window.Worker=Orig};
+}
+async function libRun(FFmpeg,cfg,log){
+ const restore=spyWorkers(log),ff=new FFmpeg(),logs=[];
+ ff.on('log',({message})=>logs.push(message));
+ try{
+  const t=performance.now();log('→ enviando comando de inicialização (load)…');
+  await withTimeout(ff.load(cfg),60000,'ff.load()');
+  log('load respondeu em '+((performance.now()-t)/1000).toFixed(1)+' s');
+  const c=await withTimeout(ff.exec(['-version']),20000,'exec -version');
+  return 'inicializou e executou o FFmpeg (código '+c+'). '+(logs.find(x=>/ffmpeg version/i.test(x))||'');
+ }finally{restore();try{ff.terminate()}catch(e){}}
+}
+async function esmTest(host,coreURL,wasmURL,log){
+ const base=`${host}@ffmpeg/ffmpeg@${FF}/dist/esm`;
+ const mod=await withTimeout(import(base+'/index.js'),25000,'importar a biblioteca ESM');
+ if(!mod||!mod.FFmpeg)throw new Error('a biblioteca carregou mas não expôs FFmpeg');
+ let code=await (await fetch(base+'/worker.js')).text();
+ code=code.replace(/(from\s*)(["'])\.\/(const|errors)\.js\2/g,(m,f,q,n)=>`${f}"${base}/${n}.js"`);
+ if(/from\s*["']\.\//.test(code))throw new Error('worker.js ainda tem import relativo');
+ const wurl=URL.createObjectURL(new Blob([code],{type:'text/javascript'}));
+ try{return await libRun(mod.FFmpeg,{classWorkerURL:wurl,coreURL,wasmURL},log)}finally{URL.revokeObjectURL(wurl)}
+}
+async function umdTest(host,S,log){
+ const dir=`${host}@ffmpeg/ffmpeg@${FF}/dist/umd/`;
+ const main=await dl(dir+'ffmpeg.js',log),id=((await main.text()).match(/(\d+)\.ffmpeg\.js/)||[])[1]||'814';
+ const chunk=await dl(`${dir}${id}.ffmpeg.js`,log);
+ if(!(window.FFmpegWASM&&window.FFmpegWASM.FFmpeg)){
+  const u=URL.createObjectURL(new Blob([main],{type:'text/javascript'}));
+  await new Promise((ok,no)=>{const s=document.createElement('script');s.src=u;s.onload=ok;s.onerror=()=>no(new Error('o navegador não executou o ffmpeg.js UMD'));document.head.appendChild(s)});
+ }
+ const FFmpeg=window.FFmpegWASM&&window.FFmpegWASM.FFmpeg;if(!FFmpeg)throw new Error('o UMD não expôs FFmpeg');
+ const w=URL.createObjectURL(new Blob([chunk],{type:'text/javascript'}));
+ try{return await libRun(FFmpeg,{classWorkerURL:w,coreURL:S.umdCoreURL,wasmURL:S.wasmURL},log)}finally{URL.revokeObjectURL(w)}
+}
+const RESP='onmessage=e=>postMessage({done:1,info:"executou o código; importScripts="+typeof importScripts})';
+const MEM='onmessage=()=>{const r=[];for(const[mb,p]of[[16,256],[256,4096],[512,8192],[1024,16384]]){try{new WebAssembly.Memory({initial:p,maximum:p});r.push(mb+" MB sim")}catch(x){r.push(mb+" MB NÃO")}}postMessage({done:1,info:r.join(" | ")})}';
+const WASM='onmessage=async e=>{try{const r=await fetch(e.data.wasm);const b=await r.arrayBuffer();postMessage({log:"lido "+(b.byteLength/1048576).toFixed(1)+" MB, tipo "+r.headers.get("content-type")});const t=performance.now();await WebAssembly.compile(b);postMessage({done:1,info:"compilou em "+Math.round(performance.now()-t)+" ms"})}catch(x){postMessage({done:1,err:String(x)})}}';
+const CORE_C='onmessage=e=>{try{importScripts(e.data.core);postMessage({done:1,info:"importScripts ok; createFFmpegCore = "+typeof self.createFFmpegCore})}catch(x){postMessage({done:1,err:String(x)})}}';
+const CORE_M='onmessage=async e=>{try{const m=await import(e.data.core);postMessage({done:1,info:"import() ok; export default = "+typeof m.default})}catch(x){postMessage({done:1,err:String(x)})}}';
+$('go').addEventListener('click',async()=>{
+ const btn=$('go');btn.disabled=true;$('steps').innerHTML='';report.length=0;for(const k in res)delete res[k];$('sumBox').style.display='none';
+ const host=$('host').value,S={};
+ const esmDir=`${host}@ffmpeg/core@${CORE}/dist/esm/`,umdDir=`${host}@ffmpeg/core@${CORE}/dist/umd/`;
+ try{
+  await T('0. Contexto da página e do aparelho',async()=>{
+   const https=location.protocol==='https:';
+   return{warn:!https,msg:`protocolo: ${location.protocol} | origem: ${location.origin} | contexto seguro: ${window.isSecureContext} | Cache API: ${'caches' in self} | Worker: ${typeof Worker} | WebAssembly: ${typeof WebAssembly} | SharedArrayBuffer: ${typeof SharedArrayBuffer} | isolado: ${self.crossOriginIsolated} | RAM aprox.: ${navigator.deviceMemory||'?'} GB | núcleos: ${navigator.hardwareConcurrency||'?'}`+(https?'':'\nATENÇÃO: não é HTTPS.')};
+  });
+  const dlRow=(name,path,type,k,sz)=>T(name,async log=>{const b=await dl(path,log);S[k]=new Blob([b],{type});S[k+'URL']=URL.createObjectURL(S[k]);return sz(S[k])});
+  const kb=b=>(b.size/1024).toFixed(0)+' KB baixados';
+  const okE=await dlRow('1a. Baixar núcleo ESM (módulo)',esmDir+'ffmpeg-core.js','text/javascript','esmCore',kb);
+  const okU=await dlRow('1b. Baixar núcleo UMD (clássico)',umdDir+'ffmpeg-core.js','text/javascript','umdCore',kb);
+  const okW=await dlRow('1c. Baixar WASM (~30 MB)',esmDir+'ffmpeg-core.wasm','application/wasm','wasm',b=>(b.size/1048576).toFixed(1)+' MB; tipo '+b.type);
+  for(const [type,label] of [['classic','CLÁSSICO'],['module','MÓDULO']]){
+   const tp=type==='module'?'module':null;
+   await T(`2. [${label}] Worker criado de blob: responde`,()=>probe(RESP,tp,{},8000),'resp:'+type);
+   await T(`3. [${label}] Memória que o Worker consegue reservar`,()=>probe(MEM,tp,{},15000),'mem:'+type);
+   if(type==='classic'){if(okU)await T(`4. [CLÁSSICO] importScripts do núcleo UMD`,()=>probe(CORE_C,null,{core:S.umdCoreURL},20000),'core:classic')}
+   else if(okE)await T(`4. [MÓDULO] import() do núcleo ESM`,()=>probe(CORE_M,'module',{core:S.esmCoreURL},20000),'core:module');
+   if(okW)await T(`5. [${label}] Worker lê e compila o WASM (blob:)`,log=>probe(WASM,tp,{wasm:S.wasmURL},60000,log),'wasm:'+type);
+  }
+  if($('lib').checked){
+   if(okE&&okW)await T('6a. Biblioteca ESM (Worker de módulo) com blob:',log=>esmTest(host,S.esmCoreURL,S.wasmURL,log),'lib:esm-blob');
+   await T('6b. Biblioteca ESM com endereços https diretos',log=>esmTest(host,esmDir+'ffmpeg-core.js',esmDir+'ffmpeg-core.wasm',log),'lib:esm-direct');
+   if(okU&&okW)await T('6c. Biblioteca UMD com blob:',log=>umdTest(host,S,log),'lib:umd');
+  }
+ }finally{
+  const f=v=>v===undefined?'—':v?'✅':'❌';
+  const names=[['resp','Worker responde'],['mem','Memória'],['core','Importa o núcleo'],['wasm','Lê e compila o WASM']];
+  let s=names.map(([k,n])=>`${n}: clássico ${f(res[k+':classic'])} | módulo ${f(res[k+':module'])}`).join('\n');
+  if($('lib').checked)s+=`\n\nBiblioteca ESM blob: ${f(res['lib:esm-blob'])} | ESM direto: ${f(res['lib:esm-direct'])} | UMD blob: ${f(res['lib:umd'])}`;
+  const first=report.find(r=>r.status==='fail');
+  s+=first?'\n\nPrimeira falha: '+first.name+'\n'+first.detail:'\n\nNenhuma etapa falhou.';
+  $('sum').textContent=s+'\n\nToque em “Copiar relatório” e envie o texto.';
+  $('sumBox').style.display='block';refreshReport();btn.disabled=false;
+ }
+});
+$('copy').addEventListener('click',async()=>{
+ const t=$('rep').value;if(!t)return;
+ try{await navigator.clipboard.writeText(t);$('copy').textContent='✅ Copiado!'}catch(e){$('rep').select();try{document.execCommand('copy');$('copy').textContent='✅ Copiado!'}catch(x){$('copy').textContent='Segure o texto abaixo e toque em Copiar'}}
+ setTimeout(()=>{$('copy').textContent='📋 Copiar relatório para enviar'},2500);
+});
+</script></body></html>
